@@ -3,6 +3,7 @@ import copy
 import numpy as np
 import time
 
+
 def v_height():
     return 20
 
@@ -418,7 +419,7 @@ class Tetris:
     }
 
     def output_data(self):
-        two_pac = np.zeros(shape=(23, 10))
+        data = np.zeros(shape=(23, 10))
         total = 0
         for row in self.play_field:
             for block in row:
@@ -427,15 +428,15 @@ class Tetris:
         for j, row in enumerate(self.play_field):
             for i, block in enumerate(row):
                 if block.block_type > 0:
-                    two_pac[j][i] = 1/total
+                    data[j][i] = 1/total
                 else:
-                    two_pac[j][i] = 0
+                    data[j][i] = 0
         for i in range(5):
-            two_pac[22][i] = self.mino_to_float[self.queue[i]]
-        two_pac[22][5] = self.mino_to_float[self.hold.shapeName]
-        two_pac[22][6] = self.mino_to_float[self.current_piece.shapeName]
-        two_pac[22][7] = self.current_piece.shapeOrient/3
-        two_pac[22][8] = self.current_piece.x / 10
-        two_pac[22][9] = self.current_piece.y / 23
+            data[22][i] = self.mino_to_float[self.queue[i]]
+            data[22][5] = self.mino_to_float[self.hold.shapeName]
+            data[22][6] = self.mino_to_float[self.current_piece.shapeName]
+            data[22][7] = self.current_piece.shapeOrient/3
+            data[22][8] = self.current_piece.x / 10
+            data[22][9] = self.current_piece.y / 23
         # print(len(two_pac))
-        return two_pac.transpose()
+        return data.transpose()
