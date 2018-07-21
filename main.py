@@ -140,11 +140,10 @@ def load():
                 dead_ais.append(Network(file.split(".")[0] + "." + file.split(".")[1], file="ais/" + file))
         generation += 1
 
+console_output = ""
 
 def loop():
-    global generation
-    global dead_ais
-    global ais
+    global generation, dead_ais, ais, console_output
     generation = 0
     load()
     if generation == 0:
@@ -160,28 +159,38 @@ def loop():
         gaussian_cull()
 
     while True:
-        out = ""
-        for ai in ais:
-            if not ai.tetris.active:
-                ai.calc_fitness()
-                print("---------------------AI #" + ai.name + " DIED---------------------")
-                print("------Fitness is " + str(ai.fitness) + "------")
-                print(ai.tetris.input_log)
-                dead_ais.append(ai)
-                ais.remove(ai)
-                break
-            ai.ANN()
-            out += "(AI #" + ai.name
-            out += " P:" + str(ai.tetris.total_pieces)
-            out += " M:" + str(ai.tetris.total_moves)
-            out += " C:" + str(ai.tetris.total_cleared) + ") "
-        print(out)
+        console_output = ""
+        pool = ThreadPool(4)  # or 1?
+        pool.map(check_ai, ais)
+
+        pool.map(run_ai, ais)
+
+        pool.close()
+        pool.join()
+        print(console_output)
         if len(ais) == 0:
             generation += 1
             gaussian_cull()
         #root.after(0, loop)
 
+
+def run_ai(ai):
+    global console_output
+    ai.ANN()
+    console_output += "(AI #" + ai.name
+    console_output += " P:" + str(ai.tetris.total_pieces)
+    console_output += " M:" + str(ai.tetris.total_moves)
+    console_output += " C:" + str(ai.tetris.total_cleared) + ") "
+
+
 def check_ai(ai):
+    if not ai.tetris.active:
+        ai.calc_fitness()
+        print("---------------------AI #" + ai.name + " DIED---------------------")
+        print("------Fitness is " + str(ai.fitness) + "------")
+        print(ai.tetris.input_log)
+        dead_ais.append(ai)
+        ais.remove(ai)
 
 
 def gaussian_cull():  # Fitness Evaluation (based on #moves for now)
@@ -191,7 +200,6 @@ def gaussian_cull():  # Fitness Evaluation (based on #moves for now)
     setattr(tf.contrib.rnn.GRUCell, '__deepcopy__', lambda self, _: self)
     setattr(tf.contrib.rnn.BasicLSTMCell, '__deepcopy__', lambda self, _: self)
     setattr(tf.contrib.rnn.MultiRNNCell, '__deepcopy__', lambda self, _: self)
-    #pool = ProPool(cpu_count()-1) # or 1?
     pool = ThreadPool(4)  # or 1?
     print(len(dead_ais))
     if len(dead_ais) >= population:
