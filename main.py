@@ -3,6 +3,8 @@ import math
 import os
 #os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 #os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+from multiprocessing.dummy import Pool as ThreadPool
+from multiprocessing import cpu_count
 import random
 from tkinter import *
 import tensorflow as tf
@@ -25,26 +27,41 @@ highest = {
     9: 'r',
 }
 
-
 class Network:
     seed = 2
     np.random.seed(0)
 
-    def __init__(self, name, c):
+    def __init__(self, name, c=None, file=None, weights=None):
         self.number_node = 22
         self.name = str(name)
         self.fitness = 0
         set_random_seed(Network.seed)
         np.random.seed(Network.seed)
         Network.seed += 100
-        self.inputs = keras.Input(shape=(23,))
-        self.x = keras.layers.Dense(self.number_node, kernel_initializer='random_uniform', bias_initializer='zero',
-                                    activation='linear')(self.inputs)
-        self.x = keras.layers.Dense(self.number_node, kernel_initializer='random_uniform', bias_initializer='zero',
-                                    activation='relu')(self.x)
-        self.outputs = keras.layers.Dense(1, activation='linear')(self.x)
+        self.graph = tf.Graph()
+        self.weights = []
+        with self.graph.as_default():
+            self.sess = tf.Session()
+            with self.sess.as_default():
+                if file is None:
+                    inputs = keras.Input(shape=(23,))
+                    x = keras.layers.Dense(self.number_node, kernel_initializer='random_uniform', bias_initializer='zero',
+                                                activation='linear')(inputs)
+                    x = keras.layers.Dense(self.number_node, kernel_initializer='random_uniform', bias_initializer='zero',
+                                                activation='relu')(x)
+                    outputs = keras.layers.Dense(1, activation='linear')(x)
 
-        self.model = keras.models.Model(inputs=self.inputs, outputs=self.outputs)
+                    self.model = keras.models.Model(inputs=inputs, outputs=outputs)
+                else:
+                    self.model = keras.models.load_model(file)
+                self.init = tf.global_variables_initializer()
+                if weights is not None:
+                    for i in range(0, len(weights)):
+                        self.model.layers[i + 1].set_weights([weights[i][0], weights[i][1]])
+                    self.weights = weights
+                else:
+                    for i in range(1, len(self.model.layers)):
+                        self.weights.append(self.model.layers[i].get_weights())
 
         self.tetris = Tetris(c)
         self.pieces = 0
@@ -55,7 +72,9 @@ class Network:
         if self.tetris.active:
             test_input_data = self.tetris.output_data()
             # print(test_input_data)
-            output_data = self.model.predict(test_input_data, 1)
+            with self.graph.as_default():
+                with self.sess.as_default():
+                    output_data = self.model.predict(test_input_data, 1)
             # print(output_data, "hi")
             data = output_data.flatten()
             index = np.argmax(data)
@@ -75,6 +94,15 @@ class Network:
                         50/(1+math.exp(2*((self.tetris.total_moves/self.tetris.total_pieces)-4.4))) - 25
         return self.fitness
 
+    def __reduce__(self):
+
+        return (self.__class__, (self.model, self.tetris, self.graph, self.sess))
+
+    def save(self):
+        with self.graph.as_default():
+            with self.sess.as_default():
+                self.model.save("ais/" + self.name + ".h5", overwrite=True, include_optimizer=False)
+                print("+++++SAVED " + self.name + "+++++\t" + str(self.fitness))
 
 # Create Root Window
 
@@ -124,9 +152,7 @@ def load():
         for file in files:
             filegen = int(file.split(".")[0])
             if generation == filegen:
-                dead_ais.append(Network(file.split(".")[0] + "." + file.split(".")[1], None))
-                ai = dead_ais[len(dead_ais) - 1]
-                dead_ais[len(dead_ais) - 1].model = keras.models.load_model("ais/" + file)
+                dead_ais.append(Network(file.split(".")[0] + "." + file.split(".")[1], file="ais/" + file))
         generation += 1
 
 
@@ -174,6 +200,12 @@ def loop():
 def gaussian_cull():  # Fitness Evaluation (based on #moves for now)
     print("++++++++++++++++++++++++NEW GEN (" + str(generation) + ")++++++++++++++++++++++++")
     global dead_ais, ais, population
+
+    setattr(tf.contrib.rnn.GRUCell, '__deepcopy__', lambda self, _: self)
+    setattr(tf.contrib.rnn.BasicLSTMCell, '__deepcopy__', lambda self, _: self)
+    setattr(tf.contrib.rnn.MultiRNNCell, '__deepcopy__', lambda self, _: self)
+    #pool = ProPool(cpu_count()-1) # or 1?
+    pool = ThreadPool(4)  # or 1?
     print(len(dead_ais))
     if len(dead_ais) >= population:
         dead_ais.sort(key=lambda x: x.fitness, reverse=False)
@@ -181,29 +213,30 @@ def gaussian_cull():  # Fitness Evaluation (based on #moves for now)
             if np.random.normal(loc=int(population/2), scale=int(population/5)) > i+1:
                 dead_ais.pop(0)
         for ai in dead_ais:
-            print("+++++SAVED " + ai.name + "+++++\t" + str(ai.fitness))
-            ai.model.save("ais/" + ai.name + ".h5", overwrite=True, include_optimizer=False)
-    for i in range(population):
+            ai.save()
+    '''for i in range(population):
         rand1 = np.random.randint(0, len(dead_ais))
         #rand2 = np.random.randint(0, len(dead_ais))
         #print("=+=Mating " + dead_ais[rand1].name + "&" + dead_ais[rand2].name + "=+=")
         #ais.append(cross_over(dead_ais[rand1], dead_ais[rand2]))
-        ais.append(single_mom(dead_ais[rand1]))
+        ais.append(single_mom(dead_ais[rand1]))'''
+    the_unlucky = []
+    for i in range(population):
+        the_unlucky.append(dead_ais[np.random.randint(0, len(dead_ais))])
+    ais = pool.map(single_mom, the_unlucky)
     dead_ais = []
+    pool.close()
+    pool.join()
 
 
 def single_mom(ai):  # 1 Point Splice + Mutation
-    ai_weights = []
-    for i in range(1, len(ai.model.layers)):
-        ai_weights.append(ai.model.layers[i].get_weights())
+    ai_weights = ai.weights
     for k in range(np.random.randint(0, 50)):
         layer = np.random.randint(low=0, high=len(ai_weights))
         wb = np.random.randint(low=0, high=2)
         jeans = np.random.randint(low=0, high=len(ai_weights[layer][wb]))
         ai_weights[layer][wb][jeans] = np.random.randint(-1, 1)
-    new_ai = Network(str(generation) + "." + str(len(ais)), None)
-    for i in range(0, len(ai_weights)):
-        new_ai.model.layers[i+1].set_weights([ai_weights[i][0], ai_weights[i][1]])
+    new_ai = Network(str(generation) + "." + str(len(ais)), weights=ai_weights)
     print("=+=" + ai.name + " is lonely on a monday night=+=")
     return new_ai
 
