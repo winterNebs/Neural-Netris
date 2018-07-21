@@ -216,7 +216,7 @@ def gaussian_cull():  # Fitness Evaluation (based on #moves for now)
         #ais.append(cross_over(dead_ais[rand1], dead_ais[rand2]))
         ais.append(single_mom(dead_ais[rand1]))'''
 
-    ais = pool.map(single_mom, range(population))
+    pool.map(single_mom, range(population))
     dead_ais = []
     pool.close()
     pool.join()
@@ -231,9 +231,8 @@ def single_mom(_):  # 1 Point Splice + Mutation
         wb = np.random.randint(low=0, high=2)
         jeans = np.random.randint(low=0, high=len(ai_weights[layer][wb]))
         ai_weights[layer][wb][jeans] = np.random.randint(-1, 1)
-    new_ai = Network(str(generation) + "." + str(len(ais)), weights=ai_weights)
+    ais.append(Network(str(generation) + "." + str(len(ais)), weights=ai_weights))
     print("=+=" + ai.name + " is lonely on a monday night=+=")
-    return new_ai
 
 
 def cross_over(ai1, ai2):  # 1 Point Splice + Mutation
