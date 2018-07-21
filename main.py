@@ -3,6 +3,7 @@ import math
 import os
 #os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 #os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 from multiprocessing.dummy import Pool as ThreadPool
 from multiprocessing import cpu_count
 import random
@@ -67,7 +68,6 @@ class Network:
         self.pieces = 0
         self.amount = 0
 
-
     def ANN(self):
         if self.tetris.active:
             test_input_data = self.tetris.output_data()
@@ -94,10 +94,6 @@ class Network:
                         50/(1+math.exp(2*((self.tetris.total_moves/self.tetris.total_pieces)-4.4))) - 25
         return self.fitness
 
-    def __reduce__(self):
-
-        return (self.__class__, (self.model, self.tetris, self.graph, self.sess))
-
     def save(self):
         with self.graph.as_default():
             with self.sess.as_default():
@@ -105,26 +101,17 @@ class Network:
                 print("+++++SAVED " + self.name + "+++++\t" + str(self.fitness))
 
 # Create Root Window
-
 #root = Tk()
 #root.title("Tetris")
-
-
 # Keyboard Input
-
 def key(event):
     print("pressed", event.keysym)
     # tetris.input_c(event.keysym)
     # tetris.render()
-
-
 # Create frame for organizational reasons
 #frame = Frame(root, width=1000, height=1000)
-
-
 # Callback
 #root.bind("<KeyPress>", key)
-
 
 
 ais = []
@@ -133,8 +120,6 @@ population = 100
 
 #frame.pack()
 #tetris.run_commands(thebiggay)
-
-
 
 # Main Loop
 generation = 0
@@ -196,6 +181,8 @@ def loop():
             gaussian_cull()
         #root.after(0, loop)
 
+def check_ai(ai):
+
 
 def gaussian_cull():  # Fitness Evaluation (based on #moves for now)
     print("++++++++++++++++++++++++NEW GEN (" + str(generation) + ")++++++++++++++++++++++++")
@@ -220,16 +207,16 @@ def gaussian_cull():  # Fitness Evaluation (based on #moves for now)
         #print("=+=Mating " + dead_ais[rand1].name + "&" + dead_ais[rand2].name + "=+=")
         #ais.append(cross_over(dead_ais[rand1], dead_ais[rand2]))
         ais.append(single_mom(dead_ais[rand1]))'''
-    the_unlucky = []
-    for i in range(population):
-        the_unlucky.append(dead_ais[np.random.randint(0, len(dead_ais))])
-    ais = pool.map(single_mom, the_unlucky)
+
+    ais = pool.map(single_mom, range(population))
     dead_ais = []
     pool.close()
     pool.join()
 
 
-def single_mom(ai):  # 1 Point Splice + Mutation
+def single_mom(_):  # 1 Point Splice + Mutation
+    global dead_ais
+    ai = dead_ais[np.random.randint(0, len(dead_ais))]
     ai_weights = ai.weights
     for k in range(np.random.randint(0, 50)):
         layer = np.random.randint(low=0, high=len(ai_weights))
