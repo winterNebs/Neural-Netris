@@ -5,7 +5,7 @@ import os
 #os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 from multiprocessing.dummy import Pool as ThreadPool
-from multiprocessing import cpu_count
+import threading
 import random
 from tkinter import *
 import tensorflow as tf
@@ -29,16 +29,11 @@ highest = {
 }
 
 class Network:
-    seed = 2
-    np.random.seed(0)
 
     def __init__(self, name, c=None, file=None, weights=None):
         self.number_node = 22
         self.name = str(name)
         self.fitness = 0
-        set_random_seed(Network.seed)
-        np.random.seed(Network.seed)
-        Network.seed += 100
         self.graph = tf.Graph()
         self.weights = []
         with self.graph.as_default():
@@ -89,10 +84,7 @@ class Network:
                 self.tetris.run_commands(highest[index])
 
     def calc_fitness(self):
-        self.fitness = (100*(math.exp(-((self.tetris.total_pieces - 100) / 30) ** 2))) + \
-                       (-math.exp((-self.tetris.total_cleared+37)/8)+100) + \
-                        50/(1+math.exp(2*((self.tetris.total_moves/self.tetris.total_pieces)-4.4))) - 25
-        return self.fitness
+        self.fitness = self.tetris.total_pieces
 
     def save(self):
         with self.graph.as_default():
@@ -100,31 +92,25 @@ class Network:
                 self.model.save("ais/" + self.name + ".h5", overwrite=True, include_optimizer=False)
                 print("+++++SAVED " + self.name + "+++++\t" + str(self.fitness))
 
-# Create Root Window
-#root = Tk()
-#root.title("Tetris")
+
 # Keyboard Input
 def key(event):
     print("pressed", event.keysym)
     # tetris.input_c(event.keysym)
     # tetris.render()
-# Create frame for organizational reasons
-#frame = Frame(root, width=1000, height=1000)
-# Callback
-#root.bind("<KeyPress>", key)
-
 
 ais = []
 canvases = []
 population = 100
 
-#frame.pack()
-#tetris.run_commands(thebiggay)
-
 # Main Loop
 generation = 0
 dead_ais = []
-
+thread_lock = threading.Lock()
+num_ais = 0
+last_avg = 0
+staleness = 0
+fit_total = 0
 
 def load():
     global generation
@@ -143,7 +129,7 @@ def load():
 console_output = ""
 
 def loop():
-    global generation, dead_ais, ais, console_output
+    global generation, dead_ais, ais
     generation = 0
     load()
     if generation == 0:
@@ -160,14 +146,14 @@ def loop():
 
     while True:
         console_output = ""
-        pool = ThreadPool(4)  # or 1?
+        pool = ThreadPool(8)  # or 1?
         pool.map(check_ai, ais)
 
         pool.map(run_ai, ais)
 
         pool.close()
         pool.join()
-        print(console_output)
+        #print(console_output)
         if len(ais) == 0:
             generation += 1
             gaussian_cull()
@@ -177,10 +163,10 @@ def loop():
 def run_ai(ai):
     global console_output
     ai.ANN()
-    console_output += "(AI #" + ai.name
-    console_output += " P:" + str(ai.tetris.total_pieces)
-    console_output += " M:" + str(ai.tetris.total_moves)
-    console_output += " C:" + str(ai.tetris.total_cleared) + ") "
+    #console_output += "(AI #" + ai.name
+    #console_output += " P:" + str(ai.tetris.total_pieces)
+    #console_output += " M:" + str(ai.tetris.total_moves)
+    #console_output += " C:" + str(ai.tetris.total_cleared) + ") "
 
 
 def check_ai(ai):
@@ -188,85 +174,103 @@ def check_ai(ai):
         ai.calc_fitness()
         print("---------------------AI #" + ai.name + " DIED---------------------")
         print("------Fitness is " + str(ai.fitness) + "------")
+        print("(AI #" + ai.name, " P:" + str(ai.tetris.total_pieces),
+              " M:" + str(ai.tetris.total_moves),
+              " C:" + str(ai.tetris.total_cleared) + ") ")
         print(ai.tetris.input_log)
         dead_ais.append(ai)
         ais.remove(ai)
+        #ai.save()
 
 
 def gaussian_cull():  # Fitness Evaluation (based on #moves for now)
-    print("++++++++++++++++++++++++NEW GEN (" + str(generation) + ")++++++++++++++++++++++++")
-    global dead_ais, ais, population
-
-    setattr(tf.contrib.rnn.GRUCell, '__deepcopy__', lambda self, _: self)
-    setattr(tf.contrib.rnn.BasicLSTMCell, '__deepcopy__', lambda self, _: self)
-    setattr(tf.contrib.rnn.MultiRNNCell, '__deepcopy__', lambda self, _: self)
-    pool = ThreadPool(4)  # or 1?
+    global dead_ais, ais, population, num_ais, fit_total, staleness, last_avg
+    print("++++++++++++++++++++++++NEW GEN (" + str(generation) + ") staleness: " + str(staleness) + "++++++++++++++++++++++++")
+    num_ais = 0
+    pool = ThreadPool(8)  # or 1?
     print(len(dead_ais))
     if len(dead_ais) >= population:
         dead_ais.sort(key=lambda x: x.fitness, reverse=False)
-        for i in range(population-5):
-            if np.random.normal(loc=int(population/2), scale=int(population/5)) > i+1:
-                dead_ais.pop(0)
-        for ai in dead_ais:
+        survivers = []
+        for i in range(population):
+            if np.random.normal(loc=int(population*0.65), scale=int(population/20)) < i:
+                survivers.append(dead_ais[i])
+        for ai in survivers:
             ai.save()
-    '''for i in range(population):
-        rand1 = np.random.randint(0, len(dead_ais))
-        #rand2 = np.random.randint(0, len(dead_ais))
-        #print("=+=Mating " + dead_ais[rand1].name + "&" + dead_ais[rand2].name + "=+=")
-        #ais.append(cross_over(dead_ais[rand1], dead_ais[rand2]))
-        ais.append(single_mom(dead_ais[rand1]))'''
-
+            fit_total += ai.fitness
+        staleness = abs(fit_total / len(survivers) - last_avg)
+        last_avg = fit_total / len(survivers)
+        fit_total = 0
+        dead_ais = survivers
+    #pool.map(single_mom, range(population))
     pool.map(single_mom, range(population))
     dead_ais = []
     pool.close()
     pool.join()
 
+def jizzmoid(x):
+  return math.exp(-(x**2))
 
 def single_mom(_):  # 1 Point Splice + Mutation
-    global dead_ais
+    global dead_ais, ais, num_ais, staleness
+    randomizer = 200 * jizzmoid(staleness) + 50
     ai = dead_ais[np.random.randint(0, len(dead_ais))]
     ai_weights = ai.weights
-    for k in range(np.random.randint(0, 50)):
+    for k in range(np.random.randint(0, randomizer)):
         layer = np.random.randint(low=0, high=len(ai_weights))
         wb = np.random.randint(low=0, high=2)
         jeans = np.random.randint(low=0, high=len(ai_weights[layer][wb]))
-        ai_weights[layer][wb][jeans] = np.random.randint(-1, 1)
-    ais.append(Network(str(generation) + "." + str(len(ais)), weights=ai_weights))
+        rand_num = np.random.uniform(low=-5, high=5)
+        if wb == 0:
+            wtf = np.random.randint(low=0, high=len(ai_weights[layer][wb][jeans]))
+            ai_weights[layer][wb][jeans][wtf] += rand_num
+        elif wb == 1:
+            ai_weights[layer][wb][jeans] += rand_num
+
+    with thread_lock:
+        ais.append(Network(str(generation) + "." + str(num_ais), weights=ai_weights))
+        num_ais += 1
     print("=+=" + ai.name + " is lonely on a monday night=+=")
 
 
-def cross_over(ai1, ai2):  # 1 Point Splice + Mutation
-    ai1_weights = []
-    ai2_weights = []
+def cross_over(_):  # 1 Point Splice + Mutation
+    global dead_ais, ais
+    ai1 = dead_ais[np.random.randint(0, len(dead_ais))]
+    ai2 = dead_ais[np.random.randint(0, len(dead_ais))]
+    ai1_weights = ai1.weights
+    ai2_weights = ai2.weights
     baby = []
-    for i in range(1, len(ai1.model.layers)):
-        ai1_weights.append(ai1.model.layers[i].get_weights())
     for i in range(1, len(ai2.model.layers)):
-        ai2_weights.append(ai2.model.layers[i].get_weights())
         baby.append([])
     for layer in range(0, len(ai1_weights)):
         for wb in range(0, len(ai1_weights[layer])):
-            rand_splice = []
-            rand_splice.append(np.random.randint(low=0, high=len(ai1_weights)))
-            rand_splice.append(np.random.randint(low=rand_splice[0], high=len(ai1_weights)))
-            rand_splice.append(np.random.randint(low=rand_splice[1], high=len(ai1_weights)))
-
+            rand_splice = np.random.randint(low=0, high=len(ai1_weights))
             baby[layer].append(np.concatenate((
-                ai1_weights[layer][wb][:rand_splice[0]], ai2_weights[layer][wb][rand_splice[0]:rand_splice[1]],
-                ai1_weights[layer][wb][rand_splice[1]:rand_splice[2]], ai2_weights[layer][wb][rand_splice[2]:]
-            ), axis=0))
-    for k in range(np.random.randint(0, 50)):
+                ai1_weights[layer][wb][:rand_splice], ai2_weights[layer][wb][rand_splice:]), axis=0))
+    for k in range(np.random.randint(0, 100)):
         layer = np.random.randint(low=0, high=len(baby))
         wb = np.random.randint(low=0, high=2)
         jeans = np.random.randint(low=0, high=len(baby[layer][wb]))
-        baby[layer][wb][jeans] = np.random.randint(-1, 1)
-    new_ai = Network(str(generation) + "." + str(len(ais)), None)
-    for i in range(0, len(baby)):
-        new_ai.model.layers[i+1].set_weights([baby[i][0], baby[i][1]])
-    return new_ai
+        baby[layer][wb][jeans] = np.random.uniform(low=-2, high=2)
+        print(baby[layer][wb][jeans])
+    ais.append(Network(str(generation) + "." + str(len(ais)), weights=baby))
+    print("=+=Mating " + ai1.name + "&" + ai2.name + "=+=")
 
 
-#root.after(1, loop)
-#root.mainloop()
+if __name__ == '__main__':
+    # Create Root Window
+    # root = Tk()
+    # root.title("Tetris")
 
-loop()
+    # Create frame for organizational reasons
+    # frame = Frame(root, width=1000, height=1000)
+    # Callback
+    # root.bind("<KeyPress>", key)
+
+    # frame.pack()
+    # tetris.run_commands(thebiggay)
+
+    # root.after(1, loop)
+    # root.mainloop()
+
+    loop()
